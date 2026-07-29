@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:task_manager_lite/providers/task_provider.dart';
-import 'package:task_manager_lite/screens/task_list_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'screens/task_list_screen.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
@@ -12,17 +11,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => TaskProvider()..fetchTasks(),
-      child: MaterialApp(
-        title: 'Task Manager Lite',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          useMaterial3: true,
-        ),
-        home: const TaskListScreen(),
+    return MaterialApp(
+      title: 'Task Manager',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
       ),
+      home: const TaskListScreen(),
     );
   }
 }

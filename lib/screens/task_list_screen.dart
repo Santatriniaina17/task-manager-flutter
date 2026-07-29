@@ -1,70 +1,65 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/task_provider.dart';
 import '../widgets/task_tile.dart';
 import '../widgets/add_task_dialog.dart';
-import '../widgets/empty_state.dart';
 
-class TaskListScreen extends StatelessWidget {
+class TaskListScreen extends ConsumerWidget {
   const TaskListScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tasksAsync = ref.watch(taskListProvider);
+    final error = ref.watch(taskErrorProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Mes tâches')),
-      body: Consumer<TaskProvider>(
-        builder: (context, provider, _) {
-          return Column(
-            children: [
-              if (provider.errorMessage != null)
-                _ErrorBanner(message: provider.errorMessage!),
-              Expanded(child: _buildBody(context, provider)),
-            ],
-          );
-        },
+      body: Column(
+        children: [
+          if (error != null) _ErrorBanner(message: error),
+          Expanded(
+            child: tasksAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, _) => _RetryView(
+                message: err is Exception ? err.toString() : 'Erreur inconnue',
+                onRetry: () => ref.invalidate(taskListProvider),
+              ),
+              data: (tasks) {
+                if (tasks.isEmpty) {
+                  return const Center(child: Text('Aucune tâche'));
+                }
+                return RefreshIndicator(
+                  onRefresh: () => ref.refresh(taskListProvider.future),
+                  child: ListView.builder(
+                    itemCount: tasks.length,
+                    itemBuilder: (context, index) {
+                      final task = tasks[index];
+                      return TaskTile(
+                        task: task,
+                        onToggle: (t) =>
+                            ref.read(taskListProvider.notifier).toggleTask(t),
+                        onDelete: (id) =>
+                            ref.read(taskListProvider.notifier).deleteTask(id),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final input = await showAddTaskDialog(context);
           if (input != null && input.title.isNotEmpty) {
             // ignore: use_build_context_synchronously
-            context.read<TaskProvider>().addTask(
-              input.title,
-              description: input.description,
-            );
+            ref
+                .read(taskListProvider.notifier)
+                .addTask(input.title, description: input.description);
           }
         },
         child: const Icon(Icons.add),
-      ),
-    );
-  }
-
-  Widget _buildBody(BuildContext context, TaskProvider provider) {
-    if (provider.isLoading && provider.tasks.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (provider.tasks.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: provider.fetchTasks,
-        // Wrap dans un ListView pour que le pull-to-refresh
-        // fonctionne même quand la liste est vide.
-        child: ListView(children: const [SizedBox(height: 120), EmptyState()]),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: provider.fetchTasks,
-      child: ListView.builder(
-        itemCount: provider.tasks.length,
-        itemBuilder: (context, index) {
-          final task = provider.tasks[index];
-          return TaskTile(
-            task: task,
-            onToggle: (t) => provider.toggleTask(t),
-            onDelete: (id) => provider.deleteTask(id),
-          );
-        },
       ),
     );
   }
@@ -83,6 +78,26 @@ class _ErrorBanner extends StatelessWidget {
       child: Text(
         message,
         style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+      ),
+    );
+  }
+}
+
+class _RetryView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _RetryView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: onRetry, child: const Text('Réessayer')),
+        ],
       ),
     );
   }

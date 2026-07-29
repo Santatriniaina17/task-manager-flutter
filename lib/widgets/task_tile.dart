@@ -4,7 +4,7 @@ import '../models/task.dart';
 class TaskTile extends StatelessWidget {
   final Task task;
   final ValueChanged<Task> onToggle;
-  final ValueChanged<String> onDelete;
+  final ValueChanged<int> onDelete;
 
   const TaskTile({
     super.key,
@@ -12,14 +12,6 @@ class TaskTile extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
   });
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    if (diff.inDays >= 1) return 'il y a ${diff.inDays} j';
-    if (diff.inHours >= 1) return 'il y a ${diff.inHours} h';
-    return 'à l\'instant';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,17 +38,9 @@ class TaskTile extends StatelessWidget {
               ? const TextStyle(decoration: TextDecoration.lineThrough)
               : null,
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (task.description != null && task.description!.isNotEmpty)
-              Text(task.description!),
-            Text(
-              _formatDate(task.createdAt),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
+        subtitle: task.description != null && task.description!.isNotEmpty
+            ? Text(task.description!)
+            : null,
       ),
     );
   }

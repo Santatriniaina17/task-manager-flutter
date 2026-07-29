@@ -1,86 +1,99 @@
-import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
+import '../data/task_api_service.dart';
 import '../models/task.dart';
-import '../repositories/task_repository.dart';
-import '../repositories/mock_task_repository.dart';
 
-class TaskProvider extends ChangeNotifier {
-  final TaskRepository _repository;
+const String kMyJsonServerBaseUrl =
+    'https://my-json-server.typicode.com/Santatriniaina17/base-test';
 
-  TaskProvider({TaskRepository? repository})
-    : _repository = repository ?? MockTaskRepository();
+final dioProvider = Provider<Dio>((ref) {
+  return Dio(
+    BaseOptions(
+      baseUrl: kMyJsonServerBaseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  );
+});
 
-  List<Task> _tasks = [];
-  bool _isLoading = false;
-  String? _errorMessage;
+final taskApiServiceProvider = Provider<TaskApiService>((ref) {
+  return TaskApiService(ref.watch(dioProvider));
+});
 
-  List<Task> get tasks => List.unmodifiable(_tasks);
-  bool get isLoading => _isLoading;
-  String? get errorMessage => _errorMessage;
+/// Erreur transitoire à afficher (bannière), séparée de l'état
+/// principal pour ne pas perdre les données déjà chargées quand
+/// une action ponctuelle échoue.
+final taskErrorProvider = StateProvider<String?>((ref) => null);
 
-  Future<void> fetchTasks() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      _tasks = await _repository.fetchTasks();
-    } on TaskRepositoryException catch (e) {
-      _errorMessage = e.message;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+class TaskListNotifier extends AsyncNotifier<List<Task>> {
+  @override
+  Future<List<Task>> build() {
+    return ref.read(taskApiServiceProvider).fetchTasks();
   }
 
   Future<void> addTask(String title, {String? description}) async {
-    _errorMessage = null;
+    final api = ref.read(taskApiServiceProvider);
+    final previous = state.value ?? [];
+
+    final tempId = -DateTime.now().millisecondsSinceEpoch;
+    final optimistic = Task(
+      id: tempId,
+      title: title,
+      description: description,
+      isDone: false,
+      createdAt: DateTime.now(),
+    );
+
+    state = AsyncData([...previous, optimistic]);
+    ref.read(taskErrorProvider.notifier).state = null;
+
     try {
-      final created = await _repository.createTask(
+      final created = await api.createTask(
         title: title,
         description: description,
       );
-      _tasks = [..._tasks, created];
-      notifyListeners();
-    } on TaskRepositoryException catch (e) {
-      _errorMessage = e.message;
-      notifyListeners();
+      state = AsyncData([
+        for (final t in state.value ?? [])
+          if (t.id == tempId) created else t,
+      ]);
+    } on TaskApiException catch (e) {
+      state = AsyncData(previous); // rollback
+      ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
 
-  /// Coche / décoche une tâche avec mise à jour optimiste.
   Future<void> toggleTask(Task task) async {
-    final previousTasks = _tasks;
-    final optimistic = task.copyWith(isDone: !task.isDone);
-    _tasks = _tasks.map((t) => t.id == task.id ? optimistic : t).toList();
-    _errorMessage = null;
-    notifyListeners();
+    final previous = state.value ?? [];
+    final updated = task.copyWith(isDone: !task.isDone);
+    state = AsyncData([
+      for (final t in previous)
+        if (t.id == task.id) updated else t,
+    ]);
+    ref.read(taskErrorProvider.notifier).state = null;
 
     try {
-      final updated = await _repository.updateTask(
-        task.id,
-        isDone: optimistic.isDone,
-      );
-      _tasks = _tasks.map((t) => t.id == task.id ? updated : t).toList();
-    } on TaskRepositoryException catch (e) {
-      _tasks = previousTasks; // rollback
-      _errorMessage = e.message;
-    } finally {
-      notifyListeners();
+      await ref.read(taskApiServiceProvider).updateTask(updated);
+    } on TaskApiException catch (e) {
+      state = AsyncData(previous); // rollback
+      ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
 
-  Future<void> deleteTask(String id) async {
-    final previousTasks = _tasks;
-    _tasks = _tasks.where((t) => t.id != id).toList();
-    _errorMessage = null;
-    notifyListeners();
+  Future<void> deleteTask(int id) async {
+    final previous = state.value ?? [];
+    state = AsyncData(previous.where((t) => t.id != id).toList());
+    ref.read(taskErrorProvider.notifier).state = null;
 
     try {
-      await _repository.deleteTask(id);
-    } on TaskRepositoryException catch (e) {
-      _tasks = previousTasks; // rollback
-      _errorMessage = e.message;
-      notifyListeners();
+      await ref.read(taskApiServiceProvider).deleteTask(id);
+    } on TaskApiException catch (e) {
+      state = AsyncData(previous); // rollback
+      ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
 }
+
+final taskListProvider = AsyncNotifierProvider<TaskListNotifier, List<Task>>(
+  TaskListNotifier.new,
+);

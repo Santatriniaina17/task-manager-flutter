@@ -6,7 +6,6 @@ class NewTaskInput {
   NewTaskInput(this.title, this.description);
 }
 
-/// Retourne le titre + description saisis (ou null si annulé).
 Future<NewTaskInput?> showAddTaskDialog(BuildContext context) {
   final titleController = TextEditingController();
   final descriptionController = TextEditingController();
