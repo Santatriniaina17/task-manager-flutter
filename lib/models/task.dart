@@ -1,5 +1,4 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
-//import 'package:json_annotation/json_annotation.dart';
 
 part 'task.freezed.dart';
 part 'task.g.dart';
@@ -10,8 +9,8 @@ abstract class Task with _$Task {
     required int id,
     required String title,
     String? description,
-    required bool isDone,
-    required DateTime createdAt,
+    @Default(false) bool isDone,
+    DateTime? createdAt,
   }) = _Task;
 
   factory Task.fromJson(Map<String, dynamic> json) => _$TaskFromJson(json);

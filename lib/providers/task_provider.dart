@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+
 import '../data/task_api_service.dart';
 import '../models/task.dart';
 
@@ -21,23 +22,24 @@ final taskApiServiceProvider = Provider<TaskApiService>((ref) {
   return TaskApiService(ref.watch(dioProvider));
 });
 
-/// Erreur transitoire à afficher (bannière), séparée de l'état
-/// principal pour ne pas perdre les données déjà chargées quand
-/// une action ponctuelle échoue.
 final taskErrorProvider = StateProvider<String?>((ref) => null);
 
 class TaskListNotifier extends AsyncNotifier<List<Task>> {
   @override
-  Future<List<Task>> build() {
+  Future<List<Task>> build() async {
     return ref.read(taskApiServiceProvider).fetchTasks();
   }
 
+  /// Ajouter une tâche
   Future<void> addTask(String title, {String? description}) async {
     final api = ref.read(taskApiServiceProvider);
+
     final previous = state.value ?? [];
 
+    // ID temporaire 
     final tempId = -DateTime.now().millisecondsSinceEpoch;
-    final optimistic = Task(
+
+    final optimisticTask = Task(
       id: tempId,
       title: title,
       description: description,
@@ -45,7 +47,9 @@ class TaskListNotifier extends AsyncNotifier<List<Task>> {
       createdAt: DateTime.now(),
     );
 
-    state = AsyncData([...previous, optimistic]);
+    // Affichage immédiat
+    state = AsyncData([...previous, optimisticTask]);
+
     ref.read(taskErrorProvider.notifier).state = null;
 
     try {
@@ -53,42 +57,89 @@ class TaskListNotifier extends AsyncNotifier<List<Task>> {
         title: title,
         description: description,
       );
+
+      // Remplacer la tâche temporaire
       state = AsyncData([
-        for (final t in state.value ?? [])
-          if (t.id == tempId) created else t,
+        for (final task in state.value ?? [])
+          if (task.id == tempId) created else task,
       ]);
     } on TaskApiException catch (e) {
-      state = AsyncData(previous); // rollback
+      // Rollback
+      state = AsyncData(previous);
+
       ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
 
+  // Modifier uniquement le statut terminé / non terminé
   Future<void> toggleTask(Task task) async {
     final previous = state.value ?? [];
-    final updated = task.copyWith(isDone: !task.isDone);
+
+    final updatedTask = task.copyWith(isDone: !task.isDone);
+
+    // Mise à jour immédiate
     state = AsyncData([
-      for (final t in previous)
-        if (t.id == task.id) updated else t,
+      for (final currentTask in previous)
+        if (currentTask.id == task.id) updatedTask else currentTask,
     ]);
+
     ref.read(taskErrorProvider.notifier).state = null;
 
     try {
-      await ref.read(taskApiServiceProvider).updateTask(updated);
+      await ref.read(taskApiServiceProvider).updateTask(updatedTask);
     } on TaskApiException catch (e) {
-      state = AsyncData(previous); // rollback
+      // Rollback
+      state = AsyncData(previous);
+
       ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
 
+  // Modifier le titre et/ou la description
+  Future<void> updateTask(Task updatedTask) async {
+    final previous = state.value ?? [];
+
+    // Mise à jour immédiate
+    state = AsyncData([
+      for (final currentTask in previous)
+        if (currentTask.id == updatedTask.id) updatedTask else currentTask,
+    ]);
+
+    ref.read(taskErrorProvider.notifier).state = null;
+
+    try {
+      final updated = await ref
+          .read(taskApiServiceProvider)
+          .updateTask(updatedTask);
+
+      // Remplacer avec la réponse du serveur
+      state = AsyncData([
+        for (final currentTask in state.value ?? [])
+          if (currentTask.id == updatedTask.id) updated else currentTask,
+      ]);
+    } on TaskApiException catch (e) {
+      // Rollback
+      state = AsyncData(previous);
+
+      ref.read(taskErrorProvider.notifier).state = e.message;
+    }
+  }
+
+  // Supprimer une tâche
   Future<void> deleteTask(int id) async {
     final previous = state.value ?? [];
-    state = AsyncData(previous.where((t) => t.id != id).toList());
+
+    // Suppression immédiate
+    state = AsyncData(previous.where((task) => task.id != id).toList());
+
     ref.read(taskErrorProvider.notifier).state = null;
 
     try {
       await ref.read(taskApiServiceProvider).deleteTask(id);
     } on TaskApiException catch (e) {
-      state = AsyncData(previous); // rollback
+      // Rollback
+      state = AsyncData(previous);
+
       ref.read(taskErrorProvider.notifier).state = e.message;
     }
   }
